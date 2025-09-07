@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)  #category=DeprecationWarning
+
+
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -102,11 +106,25 @@ vector_embeddings = embeddings.embed_query('Hello how are you?')
 print(vector_embeddings, '\n', len(vector_embeddings))
 
 # Storing the data inside the Pinecone
-docsearch = PineconeVectorStore.from_documents(
-    documents=minimal_docs,
-    embedding=embeddings,
-    index_name=index_name
-)
+def store_data():
+    docsearch = PineconeVectorStore.from_documents(
+        documents=minimal_docs,
+        embedding=embeddings,
+        index_name=index_name
+    )
+    return docsearch
 
 print("Documents successfully stored in Pinecone!")
-print(docsearch)
+#print(store_data())
+
+# Loading the existing data from the Pinecone
+def load_existing_data():
+    docsearch = PineconeVectorStore.from_existing_index(
+        index_name=index_name,
+        embedding=embeddings
+    )
+    return docsearch
+
+loading_data = load_existing_data()
+print(loading_data)
+    
