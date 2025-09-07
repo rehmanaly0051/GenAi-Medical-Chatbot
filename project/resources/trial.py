@@ -1,6 +1,7 @@
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_pinecone.vectorstores import PineconeVectorStore
 from langchain_openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 from dotenv import load_dotenv
@@ -14,7 +15,7 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Setting the enviornmenst variables of pinecone and openai
+# Setting the environment variables of pinecone and openai
 os.environ['PINECONE_API_KEY'] = PINECONE_API_KEY
 os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
 
@@ -33,8 +34,6 @@ if not pc.has_index(index_name):
     )
 
 index = pc.Index(index_name)
-print(index)
-
 
 # Loading the Document in my case i have the Medical_book
 def load_pdf_files(data):
@@ -47,55 +46,67 @@ def load_pdf_files(data):
     document = loader.load()
     return document
 
-extraced_data = load_pdf_files('../data')
+extracted_data = load_pdf_files('../data')
 
-# filtering the docs with geeniring it with just the minimal documents inside the document loader
-def filtering_minimal_doc(docs: List[Document])->List[Document]:
+# Splitting the document in the chunks for the embeddings FIRST
+def splitting_text(docs):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )                   
+    text = text_splitter.split_documents(docs)
+    return text
+
+# Split first, then filter with chunk information
+split_docs = splitting_text(extracted_data)
+
+# Filtering the docs with generating it with just the minimal documents inside the document loader
+def filtering_minimal_doc(docs: List[Document]) -> List[Document]:
     minimal_docs: List[Document] = []
-    for doc in docs:
-        src = doc.metadata.get('source')
+    for i, doc in enumerate(docs):
+        src = doc.metadata.get('source', '')
+        page = doc.metadata.get('page')
+        
+        # Create clean metadata with only valid values
+        metadata = {
+            'source': str(src) if src else '',
+            'chunk_id': str(i)  # Add chunk ID based on position
+        }
+        
+        # Only add page if it's not None
+        if page is not None:
+            metadata['page'] = int(page) if isinstance(page, (int, float, str)) else 0
+            
         minimal_docs.append(
             Document(
-                page_content = doc.page_content,
-                metadata = {
-                    'source': src,
-                    'page': doc.metadata.get('page'),
-                    'chunk': doc.metadata.get('chunk')
-                }
+                page_content=doc.page_content,
+                metadata=metadata
             )
         )
     return minimal_docs
 
-minimal_docs = filtering_minimal_doc(extraced_data)    
+minimal_docs = filtering_minimal_doc(split_docs)
 
-# Splitting the document in the chunks for the embeddings
-def splitting_text(minimal_docs):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 1000,
-        chunk_overlap = 200,
-        length_function = len
-    )                   
-    text = text_splitter.split_documents(minimal_docs)
-    return text
-
-text = splitting_text(minimal_docs)
-
-# Downlaoding the embeddings model for the vector embedding of the documents.
-def downlaod_embeddings():
+# Downloading the embeddings model for the vector embedding of the documents.
+def download_embeddings():
     model_name = 'sentence-transformers/all-MiniLM-L6-v2'
     embeddings = HuggingFaceEmbeddings(
-        model_name = model_name
+        model_name=model_name
         #model_kwargs = {'device': 'cuda' if torch.cuda.is_available() else 'cpu'}
     )
     return embeddings
 
-embeddings = downlaod_embeddings()
+embeddings = download_embeddings()
 vector_embeddings = embeddings.embed_query('Hello how are you?')
 print(vector_embeddings, '\n', len(vector_embeddings))
 
+# Storing the data inside the Pinecone
+docsearch = PineconeVectorStore.from_documents(
+    documents=minimal_docs,
+    embedding=embeddings,
+    index_name=index_name
+)
 
-
-#print(extraced_data) 
-#print(minimal_docs)     
-#print(text)
-#print(embeddings)
+print("Documents successfully stored in Pinecone!")
+print(docsearch)
